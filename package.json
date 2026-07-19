@@ -1,0 +1,24 @@
+{
+  "name": "whatsapp-filter",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "setup": "node setup.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/genai": "^2.11.0",
+    "dotenv": "^17.4.2",
+    "inquirer": "^8.2.7",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}

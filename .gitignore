@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Local credentials & configuration (CRITICAL)
+.env
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Processed messages state cache
+processed_messages.json
+
+# System files
+.DS_Store
