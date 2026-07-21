@@ -59,7 +59,21 @@ client.on('qr', (qr) => {
 
 let pollIntervalId = null;
 
+// Startup progress logger — prints every 5s while browser/WhatsApp initializes
+let startupSpinner = null;
+let startupSeconds = 0;
+console.log('🚀 Launching browser and connecting to WhatsApp...');
+startupSpinner = setInterval(() => {
+    startupSeconds += 5;
+    console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed (can take up to 60s on a slow server)`);
+}, 5000);
+
 client.on('ready', async () => {
+    // Stop startup spinner
+    if (startupSpinner) {
+        clearInterval(startupSpinner);
+        startupSpinner = null;
+    }
     console.log('\n✅ WhatsApp Client is ready!');
     console.log(`📡 Source Channel: ${sourceChannelId}`);
     console.log(`🎯 Destination Channel: ${destinationChannelId}`);
@@ -80,8 +94,14 @@ client.on('ready', async () => {
             clearInterval(pollIntervalId);
         }
         // Wait for WhatsApp Web to fully sync chats on slow VMs before first poll
-        console.log('⏳ Waiting 15 seconds for WhatsApp to finish syncing chats...');
-        await new Promise(resolve => setTimeout(resolve, 15000));
+        const syncWait = 15;
+        for (let i = syncWait; i > 0; i--) {
+            if (i === syncWait || i % 5 === 0 || i <= 3) {
+                console.log(`⏳ Syncing WhatsApp chats... ${i}s remaining`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        console.log('✅ Sync complete! Starting first scan...');
 
         // Start polling
         pollIntervalId = setInterval(pollChannel, POLLING_INTERVAL_MS);
