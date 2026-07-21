@@ -86,6 +86,10 @@ client.on('ready', async () => {
         console.log(`🔎 AI Criteria: "${jobCriteria}"`);
     } else {
         console.log(`🔎 Filter Mode: Keywords (Whitelist/Blacklist)`);
+        console.log(`   ✅ Technologies (must match 1): ${process.env.WHITELIST_TECHNOLOGIES || '(none)'}`);
+        console.log(`   ✅ Roles (must match 1):        ${process.env.WHITELIST_ROLES || '(none)'}`);
+        console.log(`   ❌ Blocked roles (title only):  ${process.env.BLACKLIST_ROLES || '(none)'}`);
+        console.log(`   ❌ Blocked technologies (full): ${process.env.BLACKLIST_TECHNOLOGIES || '(none)'}`);
     }
     console.log(`⏱️  Polling Interval: Every ${POLLING_INTERVAL_MS / 1000 / 60} minutes\n`);
 
