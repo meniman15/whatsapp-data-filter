@@ -41,7 +41,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     authTimeoutMs: 60000, // 60 seconds timeout for slower VM environments
     puppeteer: {
-        protocolTimeout: 60000, // Extend CDP protocol timeout for slow VMs
+        protocolTimeout: 180000, // Extend CDP protocol timeout for slow VMs (3 minutes)
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -239,7 +239,8 @@ async function pollChannel() {
             err.message.includes('detached Frame') ||
             err.message.includes('Protocol error') ||
             err.message.includes('Target closed') ||
-            err.message.includes('Session closed')
+            err.message.includes('Session closed') ||
+            err.message.includes('timed out')
         ) {
             console.log('🔄 Detected browser connection issue. Attempting to recover by restarting the client...');
             if (pollIntervalId) {
