@@ -52,6 +52,10 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
+    if (startupSpinner) {
+        clearInterval(startupSpinner);
+        startupSpinner = null;
+    }
     console.log('--- QR CODE ---');
     console.log('Scan this QR code with your WhatsApp app to log in:');
     qrcode.generate(qr, { small: true });
@@ -74,13 +78,19 @@ client.on('ready', async () => {
         clearInterval(startupSpinner);
         startupSpinner = null;
     }
+    const isAiModeStartup = (process.env.FILTER_MODE || 'ai').toLowerCase() === 'ai';
     console.log('\n✅ WhatsApp Client is ready!');
     console.log(`📡 Source Channel: ${sourceChannelId}`);
     console.log(`🎯 Destination Channel: ${destinationChannelId}`);
-    console.log(`🔎 Filter Criteria: "${jobCriteria}"`);
+    if (isAiModeStartup) {
+        console.log(`🔎 AI Criteria: "${jobCriteria}"`);
+    } else {
+        console.log(`🔎 Filter Mode: Keywords (Whitelist/Blacklist)`);
+    }
     console.log(`⏱️  Polling Interval: Every ${POLLING_INTERVAL_MS / 1000 / 60} minutes\n`);
 
-    if (sourceChannelId && destinationChannelId && jobCriteria) {
+    const isReady = sourceChannelId && destinationChannelId && (!isAiModeStartup || jobCriteria);
+    if (isReady) {
         // Send a test connection message to the destination channel
         try {
             await client.sendMessage(destinationChannelId, "🤖 Job Filter Bot is now connected and listening for job postings!");
@@ -107,7 +117,11 @@ client.on('ready', async () => {
         pollIntervalId = setInterval(pollChannel, POLLING_INTERVAL_MS);
         pollChannel(); // initial check
     } else {
-        console.error('❌ Please fill out the .env file with your IDs and criteria.');
+        if (!sourceChannelId || !destinationChannelId) {
+            console.error('❌ Please set SOURCE_CHANNEL_ID and DESTINATION_CHANNEL_ID in your .env file.');
+        } else {
+            console.error('❌ AI mode requires JOB_CRITERIA to be set in your .env file.');
+        }
     }
 });
 
