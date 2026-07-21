@@ -79,6 +79,10 @@ client.on('ready', async () => {
         if (pollIntervalId) {
             clearInterval(pollIntervalId);
         }
+        // Wait for WhatsApp Web to fully sync chats on slow VMs before first poll
+        console.log('⏳ Waiting 15 seconds for WhatsApp to finish syncing chats...');
+        await new Promise(resolve => setTimeout(resolve, 15000));
+
         // Start polling
         pollIntervalId = setInterval(pollChannel, POLLING_INTERVAL_MS);
         pollChannel(); // initial check
@@ -202,16 +206,15 @@ async function processSingleMessage(msg) {
 
 async function pollChannel() {
     try {
-        const chat = await client.getChatById(sourceChannelId);
-        if (!chat) {
-            console.error('Source channel not found. Please check SOURCE_CHANNEL_ID.');
-            return;
-        }
-
         console.log('🔄 Loading message history from the last 3 days (Please wait, this is NOT stuck)...');
 
         // Fetch recent messages safely using memory models to avoid wwebjs loadEarlierMsgs infinite loop bug
         const messages = await fetchRecentMessages(sourceChannelId, 150);
+
+        if (messages.length === 0) {
+            console.log('⚠️  No messages found. The source channel may still be syncing. Will retry next cycle.');
+            return;
+        }
 
         // Filter messages to process in this tick (last 24h and not already processed)
         const messagesToProcess = messages.filter(msg => {
