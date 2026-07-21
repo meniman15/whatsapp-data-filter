@@ -43,9 +43,10 @@ Reply with ONLY "YES" if it is relevant and a good match, or "NO" if it is not r
 
 /**
  * Checks if a job description matches using basic keyword matching.
+ * Returns { matched: boolean, reason: string }
  */
 function isJobRelevantKeywords(jobDescription) {
-    if (!jobDescription) return false;
+    if (!jobDescription) return { matched: false, reason: 'Empty job description' };
 
     const text = jobDescription.toLowerCase();
 
@@ -63,28 +64,35 @@ function isJobRelevantKeywords(jobDescription) {
     // 1. Check blacklist first. If ANY blacklisted word is present, reject immediately.
     for (const word of blacklist) {
         if (text.includes(word)) {
-            return false; 
+            return { matched: false, reason: `Blacklisted keyword matched: "${word}"` };
         }
     }
 
     // 2. Check technologies. If provided, AT LEAST ONE must be present.
     if (technologies.length > 0) {
-        const foundTech = technologies.some(word => text.includes(word));
-        if (!foundTech) {
-            return false;
+        const matchedTech = technologies.find(word => text.includes(word));
+        if (!matchedTech) {
+            return { matched: false, reason: `No technology matched (need one of: ${technologies.join(', ')})` };
         }
     }
 
     // 3. Check roles. If provided, AT LEAST ONE must be present.
     if (roles.length > 0) {
-        const foundRole = roles.some(word => text.includes(word));
-        if (!foundRole) {
-            return false;
+        const matchedRole = roles.find(word => text.includes(word));
+        if (!matchedRole) {
+            return { matched: false, reason: `No role matched (need one of: ${roles.join(', ')})` };
         }
     }
 
-    // If it passed all filters, it's relevant!
-    return true;
+    // Build a summary of what matched
+    const matchedTechs = technologies.filter(w => text.includes(w));
+    const matchedRoles = roles.filter(w => text.includes(w));
+    const reason = [
+        matchedTechs.length > 0 ? `Tech: ${matchedTechs.join(', ')}` : '',
+        matchedRoles.length > 0 ? `Role: ${matchedRoles.join(', ')}` : '',
+    ].filter(Boolean).join(' | ');
+
+    return { matched: true, reason: reason || 'Passed all filters' };
 }
 
 function extractYearsOfExperience(text) {
@@ -146,14 +154,16 @@ function extractYearsOfExperience(text) {
 
 /**
  * Master filtering function that routes to AI or Keyword logic based on config.
+ * Returns { matched: boolean, reason: string }
  */
 async function isJobRelevant(jobDescription) {
     const maxYearsEnv = process.env.MAX_YEARS_EXPERIENCE ? parseInt(process.env.MAX_YEARS_EXPERIENCE, 10) : null;
     if (maxYearsEnv) {
         const years = extractYearsOfExperience(jobDescription);
         if (years > maxYearsEnv) {
-            console.log(`🚫 FILTER OUT: Requires ${years} years of experience (Max limit is ${maxYearsEnv}).`);
-            return false;
+            const reason = `Requires ${years} years of experience (max is ${maxYearsEnv})`;
+            console.log(`🚫 FILTER OUT: ${reason}.`);
+            return { matched: false, reason };
         }
     }
 
@@ -163,7 +173,8 @@ async function isJobRelevant(jobDescription) {
         return isJobRelevantKeywords(jobDescription);
     } else {
         const criteria = process.env.JOB_CRITERIA;
-        return isJobRelevantAI(jobDescription, criteria);
+        const matched = await isJobRelevantAI(jobDescription, criteria);
+        return { matched, reason: matched ? 'AI classified as relevant' : 'AI classified as not relevant' };
     }
 }
 

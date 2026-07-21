@@ -168,24 +168,29 @@ async function processSingleMessage(msg) {
     }
 
     let isRelevant = false;
+    let reason = '';
     let usedFallback = false;
 
     try {
-        isRelevant = await isJobRelevant(text);
+        const result = await isJobRelevant(text);
+        isRelevant = result.matched;
+        reason = result.reason;
     } catch (apiErr) {
         console.warn(`⚠️ Gemini API error (quota/limit exceeded): ${apiErr.message}`);
         console.warn('🔄 Falling back to local whitelist/blacklist keyword filtering...');
-        isRelevant = isJobRelevantKeywords(text);
+        const result = isJobRelevantKeywords(text);
+        isRelevant = result.matched;
+        reason = result.reason;
         usedFallback = true;
     }
 
     if (isRelevant) {
         if (usedFallback) {
-            console.log('➡️  FALLBACK DECISION: ✅ FILTER IN (Keywords matched - Forwarding)');
+            console.log(`➡️  FALLBACK DECISION: ✅ FILTER IN — ${reason}`);
         } else if (isAiMode) {
-            console.log('➡️  AI DECISION: ✅ FILTER IN (Relevant - Forwarding to destination)');
+            console.log(`➡️  AI DECISION: ✅ FILTER IN — ${reason}`);
         } else {
-            console.log('➡️  DECISION: ✅ FILTER IN (Keywords matched - Forwarding)');
+            console.log(`➡️  DECISION: ✅ FILTER IN — ${reason}`);
         }
         try {
             await client.sendMessage(destinationChannelId, `[Filtered Job]\n\n${text}`);
@@ -194,11 +199,11 @@ async function processSingleMessage(msg) {
         }
     } else {
         if (usedFallback) {
-            console.log('➡️  FALLBACK DECISION: ❌ FILTER OUT (Keywords did not match - Ignoring)');
+            console.log(`➡️  FALLBACK DECISION: ❌ FILTER OUT — ${reason}`);
         } else if (isAiMode) {
-            console.log('➡️  AI DECISION: ❌ FILTER OUT (Not Relevant - Ignoring)');
+            console.log(`➡️  AI DECISION: ❌ FILTER OUT — ${reason}`);
         } else {
-            console.log('➡️  DECISION: ❌ FILTER OUT (Keywords did not match - Ignoring)');
+            console.log(`➡️  DECISION: ❌ FILTER OUT — ${reason}`);
         }
     }
     console.log('=============================================================\n');
@@ -245,7 +250,7 @@ async function pollChannel() {
             err.message.includes('Session closed') ||
             err.message.includes('timed out')
         ) {
-            console.log('🔄 Detected browser connection issue. Attempting to recover by restarting the client...');
+            console.log('🔄 Detected browser connection issue. Exiting for clean restart (PM2 will auto-restart)...');
             if (pollIntervalId) {
                 clearInterval(pollIntervalId);
                 pollIntervalId = null;
@@ -253,11 +258,7 @@ async function pollChannel() {
             try {
                 await client.destroy();
             } catch (_) { }
-            console.log('Re-initializing client...');
-            client.initialize().catch(async (initErr) => {
-                console.error('Failed to re-initialize client after crash:', initErr);
-                process.exit(1);
-            });
+            process.exit(1);
         }
     }
 }

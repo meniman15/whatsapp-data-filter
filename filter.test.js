@@ -54,50 +54,55 @@ describe('Job Filter Logic', () => {
         });
 
         it('should return true if no technologies, roles, and blacklist are provided', async () => {
-            const result = await isJobRelevantKeywords('Any job description');
-            expect(result).toBe(true);
+            const result = isJobRelevantKeywords('Any job description');
+            expect(result.matched).toBe(true);
         });
 
         it('should return true if text matches both a technology and a role', async () => {
             process.env.WHITELIST_TECHNOLOGIES = 'react, python';
             process.env.WHITELIST_ROLES = 'developer, engineer';
-            const result = await isJobRelevantKeywords('Looking for a Python developer');
-            expect(result).toBe(true);
+            const result = isJobRelevantKeywords('Looking for a Python developer');
+            expect(result.matched).toBe(true);
+            expect(result.reason).toContain('python');
+            expect(result.reason).toContain('developer');
         });
 
         it('should return false if text matches a technology but NOT a role', async () => {
             process.env.WHITELIST_TECHNOLOGIES = 'react, python';
             process.env.WHITELIST_ROLES = 'developer, engineer';
-            const result = await isJobRelevantKeywords('Python workshop for beginners');
-            expect(result).toBe(false);
+            const result = isJobRelevantKeywords('Python workshop for beginners');
+            expect(result.matched).toBe(false);
+            expect(result.reason).toContain('No role matched');
         });
 
         it('should return false if text matches a role but NOT a technology', async () => {
             process.env.WHITELIST_TECHNOLOGIES = 'react, python';
             process.env.WHITELIST_ROLES = 'developer, engineer';
-            const result = await isJobRelevantKeywords('Looking for a hardware engineer');
-            expect(result).toBe(false);
+            const result = isJobRelevantKeywords('Looking for a hardware engineer');
+            expect(result.matched).toBe(false);
+            expect(result.reason).toContain('No technology matched');
         });
 
         it('should return false if text matches a blacklist keyword (even if both tech and role match)', async () => {
             process.env.WHITELIST_TECHNOLOGIES = 'react';
             process.env.WHITELIST_ROLES = 'developer';
             process.env.BLACKLIST_KEYWORDS = 'senior staff';
-            const result = await isJobRelevantKeywords('Looking for a Senior Staff React developer');
-            expect(result).toBe(false);
+            const result = isJobRelevantKeywords('Looking for a Senior Staff React developer');
+            expect(result.matched).toBe(false);
+            expect(result.reason).toContain('senior staff');
         });
 
         it('should return false if text matches a blacklist keyword (with no whitelist)', async () => {
             process.env.BLACKLIST_KEYWORDS = 'office, hybrid';
-            const result = await isJobRelevantKeywords('We need an office worker');
-            expect(result).toBe(false);
+            const result = isJobRelevantKeywords('We need an office worker');
+            expect(result.matched).toBe(false);
         });
         
         it('handles case insensitivity and spacing', async () => {
             process.env.WHITELIST_TECHNOLOGIES = '  ReAcT  ,  NoDeJs ';
             process.env.WHITELIST_ROLES = 'developer';
-            const result = await isJobRelevantKeywords('looking for a react developer');
-            expect(result).toBe(true);
+            const result = isJobRelevantKeywords('looking for a react developer');
+            expect(result.matched).toBe(true);
         });
     });
 
@@ -133,13 +138,13 @@ describe('Job Filter Logic', () => {
             process.env.BLACKLIST_KEYWORDS = '';
 
             // Should pass (exceeds nothing, no experience specified)
-            expect(await isJobRelevant('Looking for a React developer')).toBe(true);
+            expect((await isJobRelevant('Looking for a React developer')).matched).toBe(true);
 
             // Should pass (requires 3 years, which is <= 5)
-            expect(await isJobRelevant('Looking for a React developer with 3 years experience')).toBe(true);
+            expect((await isJobRelevant('Looking for a React developer with 3 years experience')).matched).toBe(true);
 
             // Should be filtered out (requires 8 years, which is > 5)
-            expect(await isJobRelevant('Looking for a React developer with 8+ years experience')).toBe(false);
+            expect((await isJobRelevant('Looking for a React developer with 8+ years experience')).matched).toBe(false);
         });
     });
 });
