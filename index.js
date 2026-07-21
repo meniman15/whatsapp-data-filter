@@ -211,7 +211,7 @@ async function processSingleMessage(msg) {
 
 async function pollChannel() {
     try {
-        console.log('🔄 Loading message history from the last 3 days (Please wait, this is NOT stuck)...');
+        console.log('🔄 Loading message history from the last 3 days (Please wait, it is currently running)...');
 
         // Fetch recent messages safely using memory models to avoid wwebjs loadEarlierMsgs infinite loop bug
         const messages = await fetchRecentMessages(sourceChannelId, 150);
