@@ -50,6 +50,13 @@ function isJobRelevantKeywords(jobDescription) {
 
     const text = jobDescription.toLowerCase();
 
+    // Extract the job title from the first non-empty line (strip WhatsApp bold/italic markers)
+    const title = jobDescription.split('\n')
+        .map(l => l.trim())
+        .find(l => l.length > 0)
+        ?.replace(/[*_~]/g, '')
+        .toLowerCase() || '';
+
     // Parse keywords from environment variables
     const getWords = (envVar) => 
         (process.env[envVar] || '')
@@ -59,16 +66,26 @@ function isJobRelevantKeywords(jobDescription) {
 
     const technologies = getWords('WHITELIST_TECHNOLOGIES');
     const roles = getWords('WHITELIST_ROLES');
-    const blacklist = getWords('BLACKLIST_KEYWORDS');
+    const blacklistRoles = getWords('BLACKLIST_ROLES');           // checked against TITLE only
+    const blacklistTechnologies = getWords('BLACKLIST_TECHNOLOGIES'); // checked against full text
 
-    // 1. Check blacklist first. If ANY blacklisted word is present, reject immediately.
-    for (const word of blacklist) {
-        if (text.includes(word)) {
-            return { matched: false, reason: `Blacklisted keyword matched: "${word}"` };
+    // 1. Check blacklisted ROLES against the job title only.
+    //    e.g. "team lead", "architect" — only reject if it's the actual job title.
+    for (const word of blacklistRoles) {
+        if (title.includes(word)) {
+            return { matched: false, reason: `Blacklisted role in title: "${word}"` };
         }
     }
 
-    // 2. Check technologies. If provided, AT LEAST ONE must be present.
+    // 2. Check blacklisted TECHNOLOGIES against the full description.
+    //    e.g. "cobol", "mainframe" — reject if mentioned anywhere.
+    for (const word of blacklistTechnologies) {
+        if (text.includes(word)) {
+            return { matched: false, reason: `Blacklisted technology in description: "${word}"` };
+        }
+    }
+
+    // 3. Check technologies whitelist. If provided, AT LEAST ONE must be present.
     if (technologies.length > 0) {
         const matchedTech = technologies.find(word => text.includes(word));
         if (!matchedTech) {
@@ -76,7 +93,7 @@ function isJobRelevantKeywords(jobDescription) {
         }
     }
 
-    // 3. Check roles. If provided, AT LEAST ONE must be present.
+    // 4. Check roles whitelist. If provided, AT LEAST ONE must be present.
     if (roles.length > 0) {
         const matchedRole = roles.find(word => text.includes(word));
         if (!matchedRole) {
