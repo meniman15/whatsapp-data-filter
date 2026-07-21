@@ -56,7 +56,8 @@ function isJobRelevantKeywords(jobDescription) {
         .map(w => w.trim().toLowerCase())
         .filter(w => w.length > 0);
 
-    const whitelist = getWords('WHITELIST_KEYWORDS');
+    const technologies = getWords('WHITELIST_TECHNOLOGIES');
+    const roles = getWords('WHITELIST_ROLES');
     const blacklist = getWords('BLACKLIST_KEYWORDS');
 
     // 1. Check blacklist first. If ANY blacklisted word is present, reject immediately.
@@ -66,22 +67,23 @@ function isJobRelevantKeywords(jobDescription) {
         }
     }
 
-    // 2. Check whitelist. If a whitelist is provided, AT LEAST ONE word must be present.
-    // If the whitelist is empty, we allow it (since it passed the blacklist).
-    if (whitelist.length > 0) {
-        let foundWhitelisted = false;
-        for (const word of whitelist) {
-            if (text.includes(word)) {
-                foundWhitelisted = true;
-                break;
-            }
-        }
-        if (!foundWhitelisted) {
+    // 2. Check technologies. If provided, AT LEAST ONE must be present.
+    if (technologies.length > 0) {
+        const foundTech = technologies.some(word => text.includes(word));
+        if (!foundTech) {
             return false;
         }
     }
 
-    // If it passed the blacklist, and either passed the whitelist or there was no whitelist, it's relevant!
+    // 3. Check roles. If provided, AT LEAST ONE must be present.
+    if (roles.length > 0) {
+        const foundRole = roles.some(word => text.includes(word));
+        if (!foundRole) {
+            return false;
+        }
+    }
+
+    // If it passed all filters, it's relevant!
     return true;
 }
 

@@ -48,31 +48,42 @@ describe('Job Filter Logic', () => {
         
         beforeEach(() => {
             process.env.FILTER_MODE = 'keywords';
-            process.env.WHITELIST_KEYWORDS = '';
+            process.env.WHITELIST_TECHNOLOGIES = '';
+            process.env.WHITELIST_ROLES = '';
             process.env.BLACKLIST_KEYWORDS = '';
         });
 
-        it('should return true if no whitelist and no blacklist are provided', async () => {
+        it('should return true if no technologies, roles, and blacklist are provided', async () => {
             const result = await isJobRelevantKeywords('Any job description');
             expect(result).toBe(true);
         });
 
-        it('should return true if text matches a whitelist keyword', async () => {
-            process.env.WHITELIST_KEYWORDS = 'react, python';
+        it('should return true if text matches both a technology and a role', async () => {
+            process.env.WHITELIST_TECHNOLOGIES = 'react, python';
+            process.env.WHITELIST_ROLES = 'developer, engineer';
             const result = await isJobRelevantKeywords('Looking for a Python developer');
             expect(result).toBe(true);
         });
 
-        it('should return false if text does NOT match any whitelist keyword', async () => {
-            process.env.WHITELIST_KEYWORDS = 'react, python';
-            const result = await isJobRelevantKeywords('Looking for a Java developer');
+        it('should return false if text matches a technology but NOT a role', async () => {
+            process.env.WHITELIST_TECHNOLOGIES = 'react, python';
+            process.env.WHITELIST_ROLES = 'developer, engineer';
+            const result = await isJobRelevantKeywords('Python workshop for beginners');
             expect(result).toBe(false);
         });
 
-        it('should return false if text matches a blacklist keyword (even if whitelist matches)', async () => {
-            process.env.WHITELIST_KEYWORDS = 'react';
-            process.env.BLACKLIST_KEYWORDS = 'senior';
-            const result = await isJobRelevantKeywords('Looking for a Senior React developer');
+        it('should return false if text matches a role but NOT a technology', async () => {
+            process.env.WHITELIST_TECHNOLOGIES = 'react, python';
+            process.env.WHITELIST_ROLES = 'developer, engineer';
+            const result = await isJobRelevantKeywords('Looking for a hardware engineer');
+            expect(result).toBe(false);
+        });
+
+        it('should return false if text matches a blacklist keyword (even if both tech and role match)', async () => {
+            process.env.WHITELIST_TECHNOLOGIES = 'react';
+            process.env.WHITELIST_ROLES = 'developer';
+            process.env.BLACKLIST_KEYWORDS = 'senior staff';
+            const result = await isJobRelevantKeywords('Looking for a Senior Staff React developer');
             expect(result).toBe(false);
         });
 
@@ -83,7 +94,8 @@ describe('Job Filter Logic', () => {
         });
         
         it('handles case insensitivity and spacing', async () => {
-            process.env.WHITELIST_KEYWORDS = '  ReAcT  ,  NoDeJs ';
+            process.env.WHITELIST_TECHNOLOGIES = '  ReAcT  ,  NoDeJs ';
+            process.env.WHITELIST_ROLES = 'developer';
             const result = await isJobRelevantKeywords('looking for a react developer');
             expect(result).toBe(true);
         });
@@ -116,7 +128,8 @@ describe('Job Filter Logic', () => {
         it('filters out jobs exceeding MAX_YEARS_EXPERIENCE', async () => {
             process.env.MAX_YEARS_EXPERIENCE = '5';
             process.env.FILTER_MODE = 'keywords';
-            process.env.WHITELIST_KEYWORDS = '';
+            process.env.WHITELIST_TECHNOLOGIES = '';
+            process.env.WHITELIST_ROLES = '';
             process.env.BLACKLIST_KEYWORDS = '';
 
             // Should pass (exceeds nothing, no experience specified)
