@@ -8,6 +8,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     authTimeoutMs: 60000,
     puppeteer: {
+        protocolTimeout: 60000,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

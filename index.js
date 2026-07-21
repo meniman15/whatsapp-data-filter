@@ -41,6 +41,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     authTimeoutMs: 60000, // 60 seconds timeout for slower VM environments
     puppeteer: {
+        protocolTimeout: 60000, // Extend CDP protocol timeout for slow VMs
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
