@@ -39,8 +39,14 @@ let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
 const client = new Client({
     authStrategy: new LocalAuth(),
+    authTimeoutMs: 60000, // 60 seconds timeout for slower VM environments
     puppeteer: {
-        args: ['--no-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
     }
 });
 
