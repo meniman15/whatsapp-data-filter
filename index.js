@@ -1,5 +1,5 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-
+const Message = require('whatsapp-web.js/src/structures/Message');
 const qrcode = require('qrcode-terminal');
 require('dotenv').config();
 const { isJobRelevant, isJobRelevantKeywords } = require('./filter');
@@ -39,15 +39,13 @@ let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
 const client = new Client({
     authStrategy: new LocalAuth(),
+    authTimeoutMs: 60000, // 60 seconds timeout for slower VM environments
     puppeteer: {
+        protocolTimeout: 180000, // Extend CDP protocol timeout for slow VMs (3 minutes)
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
             '--disable-gpu'
         ]
     }
@@ -132,25 +130,54 @@ client.on('ready', async () => {
 });
 
 async function fetchRecentMessages(chatId, limit) {
-    try {
-        // getChatById does not work reliably for @newsletter channels — it throws
-        // an internal "r: r" error. The workaround is to scan getChats() instead.
-        const chats = await client.getChats();
-        const chat = chats.find(c => c.id._serialized === chatId);
+    const result = await client.pupPage.evaluate(async (chatId, limit) => {
+        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+        if (!chat || !chat.msgs) return { messages: [], debug: 'no-chat' };
 
-        if (!chat) {
-            console.log(`⚠️  Source channel "${chatId}" not found in chat list. It may still be syncing.`);
-            return [];
+        const msgFilter = (m) => !m.isNotification;
+        let msgs = chat.msgs.getModelsArray().filter(msgFilter);
+
+        let attempts = 0;
+        let loadLogs = [];
+        loadLogs.push(`Initial in-memory: ${msgs.length}`);
+
+        while (msgs.length < limit && attempts < 10) {
+            const loadedMessages = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
+            const firstMsg = loadedMessages[0];
+            const sampleIdInfo = firstMsg && firstMsg.id
+                ? (typeof firstMsg.id === 'object' ? `obj(keys:${Object.keys(firstMsg.id).join(',')},_ser:${firstMsg.id._serialized},id:${firstMsg.id.id})` : `val:${firstMsg.id}`)
+                : 'no-id';
+            loadLogs.push(`Attempt ${attempts + 1}: loaded ${loadedMessages.length} (sampleId: ${sampleIdInfo})`);
+            if (!loadedMessages || !loadedMessages.length) break;
+
+            const getMsgId = (m) => {
+                if (!m || !m.id) return null;
+                return typeof m.id === 'object' ? (m.id._serialized || m.id.id) : m.id;
+            };
+            const existingIds = new Set(msgs.map(m => getMsgId(m)).filter(id => id !== null));
+            const newMsgs = loadedMessages.filter(m => {
+                if (!msgFilter(m)) return false;
+                const mId = getMsgId(m);
+                return mId !== null && !existingIds.has(mId);
+            });
+            loadLogs.push(`Attempt ${attempts + 1}: new: ${newMsgs.length}`);
+            if (newMsgs.length === 0) break; // no new actual messages loaded
+
+            msgs = [...newMsgs, ...msgs];
+            attempts++;
         }
 
-        console.log(`📥 Requesting up to ${limit} messages from WhatsApp...`);
-        const messages = await chat.fetchMessages({ limit });
-        console.log(`📥 Received ${messages.length} messages from WhatsApp.`);
-        return messages;
-    } catch (err) {
-        console.error('Error in fetchRecentMessages:', err);
-        return [];
-    }
+        if (msgs.length > limit) {
+            msgs = msgs.slice(msgs.length - limit);
+        }
+        return {
+            messages: msgs.map(m => window.WWebJS.getMessageModel(m)),
+            debug: loadLogs.join(' | ')
+        };
+    }, chatId, limit);
+
+    console.log(`[Debug Fetch] ${result.debug}`);
+    return result.messages.map(m => new Message(client, m));
 }
 
 async function processSingleMessage(msg) {
@@ -222,10 +249,10 @@ async function processSingleMessage(msg) {
 
 async function pollChannel() {
     try {
-        console.log('🔄 Loading message history from the last 5 days (Please wait, this may take a minute)...');
+        console.log('🔄 Loading message history from the last 5 days (Please wait, this is NOT stuck)...');
 
-        // Use the built-in fetchMessages with a high limit so it scrolls back through history
-        const messages = await fetchRecentMessages(sourceChannelId, 500);
+        // Fetch recent messages safely using memory models to avoid wwebjs loadEarlierMsgs infinite loop bug
+        const messages = await fetchRecentMessages(sourceChannelId, 150);
 
         if (messages.length === 0) {
             console.log('⚠️  No messages found. The source channel may still be syncing. Will retry next cycle.');
