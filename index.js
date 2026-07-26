@@ -130,53 +130,65 @@ client.on('ready', async () => {
 });
 
 async function fetchRecentMessages(chatId, limit) {
-    const result = await client.pupPage.evaluate(async (chatId, limit) => {
-        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
-        if (!chat || !chat.msgs) return { messages: [], debug: 'no-chat' };
-
-        const msgFilter = (m) => !m.isNotification;
-        let msgs = chat.msgs.getModelsArray().filter(msgFilter);
-
+    const result = await client.pupPage.evaluate(async (id, targetLimit) => {
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        
+        // 1. Find the chat without using getChat (which breaks on newsletters)
+        const chats = await window.WWebJS.getChats();
+        const chat = chats.find(c => c.id._serialized === id);
+        if (!chat) return { messages: [], debug: 'Channel not found in memory.' };
+        
+        // 2. Open chat in UI to trigger DOM rendering
+        try {
+            await window.require('WAWebCmd').Cmd.openChatBottom({ chat });
+            await sleep(2000); 
+        } catch (e) {
+            return { messages: [], debug: 'Failed to open chat: ' + e.message };
+        }
+        
+        // 3. Find scrollable pane
+        const messagePane = document.querySelector('div[role="region"][aria-label="Message list"]') 
+            || document.querySelector('#main .copyable-area [style*="overflow-y"]');
+            
+        if (!messagePane) {
+            return { messages: [], debug: 'Scroll pane not found in DOM.' };
+        }
+        
+        // 4. Scroll Loop
+        let previousHeight = messagePane.scrollHeight;
         let attempts = 0;
-        let loadLogs = [];
-        loadLogs.push(`Initial in-memory: ${msgs.length}`);
-
-        while (msgs.length < limit && attempts < 10) {
-            const loadedMessages = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
-            const firstMsg = loadedMessages[0];
-            const sampleIdInfo = firstMsg && firstMsg.id
-                ? (typeof firstMsg.id === 'object' ? `obj(keys:${Object.keys(firstMsg.id).join(',')},_ser:${firstMsg.id._serialized},id:${firstMsg.id.id})` : `val:${firstMsg.id}`)
-                : 'no-id';
-            loadLogs.push(`Attempt ${attempts + 1}: loaded ${loadedMessages.length} (sampleId: ${sampleIdInfo})`);
-            if (!loadedMessages || !loadedMessages.length) break;
-
-            const getMsgId = (m) => {
-                if (!m || !m.id) return null;
-                return typeof m.id === 'object' ? (m.id._serialized || m.id.id) : m.id;
-            };
-            const existingIds = new Set(msgs.map(m => getMsgId(m)).filter(id => id !== null));
-            const newMsgs = loadedMessages.filter(m => {
-                if (!msgFilter(m)) return false;
-                const mId = getMsgId(m);
-                return mId !== null && !existingIds.has(mId);
-            });
-            loadLogs.push(`Attempt ${attempts + 1}: new: ${newMsgs.length}`);
-            if (newMsgs.length === 0) break; // no new actual messages loaded
-
-            msgs = [...newMsgs, ...msgs];
-            attempts++;
+        let scrollLogs = [];
+        const msgFilter = (m) => !m.isNotification;
+        
+        while (chat.msgs.getModelsArray().filter(msgFilter).length < targetLimit && attempts < 15) {
+            messagePane.scrollTop = 0; // Scroll up
+            await sleep(2500); // Wait for fetch & render
+            
+            if (messagePane.scrollHeight > previousHeight) {
+                scrollLogs.push(`Loaded ${chat.msgs.getModelsArray().length}`);
+                previousHeight = messagePane.scrollHeight;
+                attempts = 0; // Reset
+            } else {
+                scrollLogs.push(`No change`);
+                attempts++;
+            }
         }
-
-        if (msgs.length > limit) {
-            msgs = msgs.slice(msgs.length - limit);
-        }
+        
+        const msgs = chat.msgs.getModelsArray().filter(msgFilter);
+        const finalMsgs = msgs.length > targetLimit ? msgs.slice(-targetLimit) : msgs;
+        
         return {
-            messages: msgs.map(m => window.WWebJS.getMessageModel(m)),
-            debug: loadLogs.join(' | ')
+            messages: finalMsgs.map(m => window.WWebJS.getMessageModel(m)),
+            debug: scrollLogs.join(' | ')
         };
     }, chatId, limit);
 
-    console.log(`[Debug Fetch] ${result.debug}`);
+    console.log(`[UI Scroll Log] ${result.debug}`);
+    
+    if (!result.messages || result.messages.length === 0) {
+        return [];
+    }
+    
     return result.messages.map(m => new Message(client, m));
 }
 
@@ -251,8 +263,8 @@ async function pollChannel() {
     try {
         console.log('🔄 Loading message history from the last 5 days (Please wait, this is NOT stuck)...');
 
-        // Fetch recent messages safely using memory models to avoid wwebjs loadEarlierMsgs infinite loop bug
-        const messages = await fetchRecentMessages(sourceChannelId, 150);
+        // Fetch recent messages safely using UI scrolling to load up to 500 messages
+        const messages = await fetchRecentMessages(sourceChannelId, 500);
 
         if (messages.length === 0) {
             console.log('⚠️  No messages found. The source channel may still be syncing. Will retry next cycle.');
