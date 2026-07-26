@@ -194,17 +194,9 @@ async function fetchRecentMessages(chatId, limit, retries = 3) {
             return result.messages.map(m => new Message(client, m));
 
         } catch (err) {
-            const isContextError = err.message && (
-                err.message.includes('r: r') ||
-                err.message.includes('Execution context was destroyed') ||
-                err.message.includes('Session closed') ||
-                err.message.includes('Target closed') ||
-                err.message.includes('detached Frame')
-            );
-            
-            if (isContextError && attempt < retries) {
+            if (attempt < retries) {
                 const waitSec = attempt * 15;
-                console.warn(`⚠️  WhatsApp Web reloaded unexpectedly (Attempt ${attempt}/${retries}). Retrying in ${waitSec}s...`);
+                console.warn(`⚠️  WhatsApp Web fetch failed (Attempt ${attempt}/${retries}). Reason: ${err.message}. Retrying in ${waitSec}s...`);
                 await new Promise(resolve => setTimeout(resolve, waitSec * 1000));
             } else {
                 console.error(`❌ fetchRecentMessages failed after ${attempt} attempt(s):`, err.message);
