@@ -143,12 +143,14 @@ async function fetchRecentMessages(chatId, limit) {
 
         while (msgs.length < limit && attempts < 10) {
             let loadedMessages = [];
+            let strategyUsed = 'none';
             
             // Strategy 1: Standard WAWebChatLoadMessages
             try {
                 const loadModule = window.require('WAWebChatLoadMessages');
                 if (loadModule && typeof loadModule.loadEarlierMsgs === 'function') {
                     loadedMessages = await loadModule.loadEarlierMsgs({ chat }) || [];
+                    if (loadedMessages.length > 0) strategyUsed = 'WAWebChatLoadMessages';
                 }
             } catch (e1) {}
 
@@ -157,6 +159,7 @@ async function fetchRecentMessages(chatId, limit) {
                 try {
                     if (chat.msgs && typeof chat.msgs.loadEarlier === 'function') {
                         loadedMessages = await chat.msgs.loadEarlier() || [];
+                        if (loadedMessages.length > 0) strategyUsed = 'chat.msgs.loadEarlier';
                     }
                 } catch (e2) {}
             }
@@ -169,12 +172,13 @@ async function fetchRecentMessages(chatId, limit) {
                         const oldestMsg = msgs[0];
                         if (oldestMsg) {
                             loadedMessages = await dbModule.msgFindBefore(chat.id, oldestMsg.id, limit) || [];
+                            if (loadedMessages.length > 0) strategyUsed = 'msgFindBefore';
                         }
                     }
                 } catch (e3) {}
             }
 
-            loadLogs.push(`Attempt ${attempts + 1}: loaded ${loadedMessages.length}`);
+            loadLogs.push(`Attempt ${attempts + 1} (${strategyUsed}): loaded ${loadedMessages.length}`);
             if (!loadedMessages || !loadedMessages.length) break;
 
             const getMsgId = (m) => {
