@@ -142,12 +142,39 @@ async function fetchRecentMessages(chatId, limit) {
         loadLogs.push(`Initial in-memory: ${msgs.length}`);
 
         while (msgs.length < limit && attempts < 10) {
-            const loadedMessages = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
-            const firstMsg = loadedMessages[0];
-            const sampleIdInfo = firstMsg && firstMsg.id
-                ? (typeof firstMsg.id === 'object' ? `obj(keys:${Object.keys(firstMsg.id).join(',')},_ser:${firstMsg.id._serialized},id:${firstMsg.id.id})` : `val:${firstMsg.id}`)
-                : 'no-id';
-            loadLogs.push(`Attempt ${attempts + 1}: loaded ${loadedMessages.length} (sampleId: ${sampleIdInfo})`);
+            let loadedMessages = [];
+            
+            // Strategy 1: Standard WAWebChatLoadMessages
+            try {
+                const loadModule = window.require('WAWebChatLoadMessages');
+                if (loadModule && typeof loadModule.loadEarlierMsgs === 'function') {
+                    loadedMessages = await loadModule.loadEarlierMsgs({ chat }) || [];
+                }
+            } catch (e1) {}
+
+            // Strategy 2: Direct model collection load
+            if (!loadedMessages || !loadedMessages.length) {
+                try {
+                    if (chat.msgs && typeof chat.msgs.loadEarlier === 'function') {
+                        loadedMessages = await chat.msgs.loadEarlier() || [];
+                    }
+                } catch (e2) {}
+            }
+
+            // Strategy 3: Local DB msgFindBefore
+            if (!loadedMessages || !loadedMessages.length) {
+                try {
+                    const dbModule = window.require('WAWebDBMessageFindLocal');
+                    if (dbModule && typeof dbModule.msgFindBefore === 'function') {
+                        const oldestMsg = msgs[0];
+                        if (oldestMsg) {
+                            loadedMessages = await dbModule.msgFindBefore(chat.id, oldestMsg.id, limit) || [];
+                        }
+                    }
+                } catch (e3) {}
+            }
+
+            loadLogs.push(`Attempt ${attempts + 1}: loaded ${loadedMessages.length}`);
             if (!loadedMessages || !loadedMessages.length) break;
 
             const getMsgId = (m) => {
@@ -160,6 +187,7 @@ async function fetchRecentMessages(chatId, limit) {
                 const mId = getMsgId(m);
                 return mId !== null && !existingIds.has(mId);
             });
+
             loadLogs.push(`Attempt ${attempts + 1}: new: ${newMsgs.length}`);
             if (newMsgs.length === 0) break; // no new actual messages loaded
 
@@ -251,8 +279,8 @@ async function pollChannel() {
     try {
         console.log('🔄 Loading message history from the last 5 days (Please wait, this is NOT stuck)...');
 
-        // Fetch recent messages safely using memory models to avoid wwebjs loadEarlierMsgs infinite loop bug
-        const messages = await fetchRecentMessages(sourceChannelId, 150);
+        // Fetch recent messages safely using enhanced multi-strategy in-memory fetcher
+        const messages = await fetchRecentMessages(sourceChannelId, 500);
 
         if (messages.length === 0) {
             console.log('⚠️  No messages found. The source channel may still be syncing. Will retry next cycle.');
