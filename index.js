@@ -137,9 +137,13 @@ client.on('ready', async () => {
 
 async function fetchRecentMessages(chatId, limit) {
     try {
-        const chat = await client.getChatById(chatId);
+        // getChatById does not work reliably for @newsletter channels — it throws
+        // an internal "r: r" error. The workaround is to scan getChats() instead.
+        const chats = await client.getChats();
+        const chat = chats.find(c => c.id._serialized === chatId);
+
         if (!chat) {
-            console.log('⚠️  Source channel not found.');
+            console.log(`⚠️  Source channel "${chatId}" not found in chat list. It may still be syncing.`);
             return [];
         }
 
