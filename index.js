@@ -129,67 +129,90 @@ client.on('ready', async () => {
     }
 });
 
-async function fetchRecentMessages(chatId, limit) {
-    const result = await client.pupPage.evaluate(async (id, targetLimit) => {
-        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-        
-        // 1. Find the chat without using getChat (which breaks on newsletters)
-        const chats = await window.WWebJS.getChats();
-        const chat = chats.find(c => c.id._serialized === id);
-        if (!chat) return { messages: [], debug: 'Channel not found in memory.' };
-        
-        // 2. Open chat in UI to trigger DOM rendering
+async function fetchRecentMessages(chatId, limit, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            await window.require('WAWebCmd').Cmd.openChatBottom({ chat });
-            await sleep(2000); 
-        } catch (e) {
-            return { messages: [], debug: 'Failed to open chat: ' + e.message };
-        }
-        
-        // 3. Find scrollable pane
-        const messagePane = document.querySelector('div[role="region"][aria-label="Message list"]') 
-            || document.querySelector('#main .copyable-area [style*="overflow-y"]');
+            const result = await client.pupPage.evaluate(async (id, targetLimit) => {
+                const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                
+                // 1. Find the chat without using getChat (which breaks on newsletters)
+                const chats = await window.WWebJS.getChats();
+                const chat = chats.find(c => c.id._serialized === id);
+                if (!chat) return { messages: [], debug: 'Channel not found in memory.' };
+                
+                // 2. Open chat in UI to trigger DOM rendering
+                try {
+                    await window.require('WAWebCmd').Cmd.openChatBottom({ chat });
+                    await sleep(2000); 
+                } catch (e) {
+                    return { messages: [], debug: 'Failed to open chat: ' + e.message };
+                }
+                
+                // 3. Find scrollable pane
+                const messagePane = document.querySelector('div[role="region"][aria-label="Message list"]') 
+                    || document.querySelector('#main .copyable-area [style*="overflow-y"]');
+                    
+                if (!messagePane) {
+                    return { messages: [], debug: 'Scroll pane not found in DOM.' };
+                }
+                
+                // 4. Scroll Loop
+                let previousHeight = messagePane.scrollHeight;
+                let attempts = 0;
+                let scrollLogs = [];
+                const msgFilter = (m) => !m.isNotification;
+                
+                while (chat.msgs.getModelsArray().filter(msgFilter).length < targetLimit && attempts < 15) {
+                    messagePane.scrollTop = 0; // Scroll up
+                    await sleep(2500); // Wait for fetch & render
+                    
+                    if (messagePane.scrollHeight > previousHeight) {
+                        scrollLogs.push(`Loaded ${chat.msgs.getModelsArray().length}`);
+                        previousHeight = messagePane.scrollHeight;
+                        attempts = 0; // Reset
+                    } else {
+                        scrollLogs.push(`No change`);
+                        attempts++;
+                    }
+                }
+                
+                const msgs = chat.msgs.getModelsArray().filter(msgFilter);
+                const finalMsgs = msgs.length > targetLimit ? msgs.slice(-targetLimit) : msgs;
+                
+                return {
+                    messages: finalMsgs.map(m => window.WWebJS.getMessageModel(m)),
+                    debug: scrollLogs.join(' | ')
+                };
+            }, chatId, limit);
+
+            console.log(`[UI Scroll Log] ${result.debug}`);
             
-        if (!messagePane) {
-            return { messages: [], debug: 'Scroll pane not found in DOM.' };
-        }
-        
-        // 4. Scroll Loop
-        let previousHeight = messagePane.scrollHeight;
-        let attempts = 0;
-        let scrollLogs = [];
-        const msgFilter = (m) => !m.isNotification;
-        
-        while (chat.msgs.getModelsArray().filter(msgFilter).length < targetLimit && attempts < 15) {
-            messagePane.scrollTop = 0; // Scroll up
-            await sleep(2500); // Wait for fetch & render
+            if (!result.messages || result.messages.length === 0) {
+                return [];
+            }
             
-            if (messagePane.scrollHeight > previousHeight) {
-                scrollLogs.push(`Loaded ${chat.msgs.getModelsArray().length}`);
-                previousHeight = messagePane.scrollHeight;
-                attempts = 0; // Reset
+            return result.messages.map(m => new Message(client, m));
+
+        } catch (err) {
+            const isContextError = err.message && (
+                err.message.includes('r: r') ||
+                err.message.includes('Execution context was destroyed') ||
+                err.message.includes('Session closed') ||
+                err.message.includes('Target closed') ||
+                err.message.includes('detached Frame')
+            );
+            
+            if (isContextError && attempt < retries) {
+                const waitSec = attempt * 15;
+                console.warn(`⚠️  WhatsApp Web reloaded unexpectedly (Attempt ${attempt}/${retries}). Retrying in ${waitSec}s...`);
+                await new Promise(resolve => setTimeout(resolve, waitSec * 1000));
             } else {
-                scrollLogs.push(`No change`);
-                attempts++;
+                console.error(`❌ fetchRecentMessages failed after ${attempt} attempt(s):`, err.message);
+                throw err;
             }
         }
-        
-        const msgs = chat.msgs.getModelsArray().filter(msgFilter);
-        const finalMsgs = msgs.length > targetLimit ? msgs.slice(-targetLimit) : msgs;
-        
-        return {
-            messages: finalMsgs.map(m => window.WWebJS.getMessageModel(m)),
-            debug: scrollLogs.join(' | ')
-        };
-    }, chatId, limit);
-
-    console.log(`[UI Scroll Log] ${result.debug}`);
-    
-    if (!result.messages || result.messages.length === 0) {
-        return [];
     }
-    
-    return result.messages.map(m => new Message(client, m));
+    return [];
 }
 
 async function processSingleMessage(msg) {
