@@ -1,5 +1,5 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const Message = require('whatsapp-web.js/src/structures/Message');
+
 const qrcode = require('qrcode-terminal');
 require('dotenv').config();
 const { isJobRelevant, isJobRelevantKeywords } = require('./filter');
@@ -10,7 +10,7 @@ const sourceChannelId = process.env.SOURCE_CHANNEL_ID;
 const destinationChannelId = process.env.DESTINATION_CHANNEL_ID;
 const jobCriteria = process.env.JOB_CRITERIA;
 const POLLING_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const AMOUNT_OF_TIME_BEFORE = 1000 * 60 * 60 * 24 * 5; //all jobs from five days ago
+const AMOUNT_OF_TIME_BEFORE = 60 * 60 * 24 * 5; // 5 days in seconds
 
 // Path to persist processed messages
 const processedFile = path.join(__dirname, 'processed_messages.json');
@@ -34,20 +34,26 @@ function saveProcessedMessages() {
     }
 }
 
-// We only process messages received in the last 3 days
+// We only process messages received in the last 5 days
 let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
 const client = new Client({
     authStrategy: new LocalAuth(),
-    authTimeoutMs: 60000, // 60 seconds timeout for slower VM environments
     puppeteer: {
-        protocolTimeout: 180000, // Extend CDP protocol timeout for slow VMs (3 minutes)
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
             '--disable-gpu'
         ]
+    },
+    webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     }
 });
 
@@ -130,54 +136,21 @@ client.on('ready', async () => {
 });
 
 async function fetchRecentMessages(chatId, limit) {
-    const result = await client.pupPage.evaluate(async (chatId, limit) => {
-        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
-        if (!chat || !chat.msgs) return { messages: [], debug: 'no-chat' };
-
-        const msgFilter = (m) => !m.isNotification;
-        let msgs = chat.msgs.getModelsArray().filter(msgFilter);
-
-        let attempts = 0;
-        let loadLogs = [];
-        loadLogs.push(`Initial in-memory: ${msgs.length}`);
-
-        while (msgs.length < limit && attempts < 10) {
-            const loadedMessages = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
-            const firstMsg = loadedMessages[0];
-            const sampleIdInfo = firstMsg && firstMsg.id
-                ? (typeof firstMsg.id === 'object' ? `obj(keys:${Object.keys(firstMsg.id).join(',')},_ser:${firstMsg.id._serialized},id:${firstMsg.id.id})` : `val:${firstMsg.id}`)
-                : 'no-id';
-            loadLogs.push(`Attempt ${attempts + 1}: loaded ${loadedMessages.length} (sampleId: ${sampleIdInfo})`);
-            if (!loadedMessages || !loadedMessages.length) break;
-
-            const getMsgId = (m) => {
-                if (!m || !m.id) return null;
-                return typeof m.id === 'object' ? (m.id._serialized || m.id.id) : m.id;
-            };
-            const existingIds = new Set(msgs.map(m => getMsgId(m)).filter(id => id !== null));
-            const newMsgs = loadedMessages.filter(m => {
-                if (!msgFilter(m)) return false;
-                const mId = getMsgId(m);
-                return mId !== null && !existingIds.has(mId);
-            });
-            loadLogs.push(`Attempt ${attempts + 1}: new: ${newMsgs.length}`);
-            if (newMsgs.length === 0) break; // no new actual messages loaded
-
-            msgs = [...newMsgs, ...msgs];
-            attempts++;
+    try {
+        const chat = await client.getChatById(chatId);
+        if (!chat) {
+            console.log('⚠️  Source channel not found.');
+            return [];
         }
 
-        if (msgs.length > limit) {
-            msgs = msgs.slice(msgs.length - limit);
-        }
-        return {
-            messages: msgs.map(m => window.WWebJS.getMessageModel(m)),
-            debug: loadLogs.join(' | ')
-        };
-    }, chatId, limit);
-
-    console.log(`[Debug Fetch] ${result.debug}`);
-    return result.messages.map(m => new Message(client, m));
+        console.log(`📥 Requesting up to ${limit} messages from WhatsApp...`);
+        const messages = await chat.fetchMessages({ limit });
+        console.log(`📥 Received ${messages.length} messages from WhatsApp.`);
+        return messages;
+    } catch (err) {
+        console.error('Error in fetchRecentMessages:', err);
+        return [];
+    }
 }
 
 async function processSingleMessage(msg) {
@@ -249,10 +222,10 @@ async function processSingleMessage(msg) {
 
 async function pollChannel() {
     try {
-        console.log('🔄 Loading message history from the last 3 days (Please wait, it is currently running)...');
+        console.log('🔄 Loading message history from the last 5 days (Please wait, this may take a minute)...');
 
-        // Fetch recent messages safely using memory models to avoid wwebjs loadEarlierMsgs infinite loop bug
-        const messages = await fetchRecentMessages(sourceChannelId, 150);
+        // Use the built-in fetchMessages with a high limit so it scrolls back through history
+        const messages = await fetchRecentMessages(sourceChannelId, 500);
 
         if (messages.length === 0) {
             console.log('⚠️  No messages found. The source channel may still be syncing. Will retry next cycle.');
@@ -276,7 +249,7 @@ async function pollChannel() {
                 index++;
             }
         } else {
-            console.log('📥 No new messages to analyze from the last 3 days.');
+            console.log('📥 No new messages to analyze from the last 5 days.');
         }
         console.log('📡 Funnel is ready and listening for new group messages in real-time!');
     } catch (err) {
