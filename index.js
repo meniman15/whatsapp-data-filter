@@ -48,7 +48,8 @@ const client = new Client({
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
         ]
     }
 });
@@ -122,6 +123,18 @@ client.on('ready', async () => {
         // Start polling
         pollIntervalId = setInterval(pollChannel, POLLING_INTERVAL_MS);
         pollChannel(); // initial check
+
+        // Keep-alive heartbeat ping every 10 minutes to prevent idle WebSocket timeouts
+        setInterval(async () => {
+            try {
+                const state = await client.getState();
+                if (state !== 'CONNECTED') {
+                    console.warn(`⚠️  Keep-alive check: Client state is "${state}".`);
+                }
+            } catch (pingErr) {
+                console.warn('⚠️  Keep-alive ping failed:', pingErr.message);
+            }
+        }, 10 * 60 * 1000);
     } else {
         if (!sourceChannelId || !destinationChannelId) {
             console.error('❌ Please set SOURCE_CHANNEL_ID and DESTINATION_CHANNEL_ID in your .env file.');
