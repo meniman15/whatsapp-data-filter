@@ -39,9 +39,11 @@ let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
 const client = new Client({
     authStrategy: new LocalAuth(),
-    authTimeoutMs: 60000, // 60 seconds timeout for slower VM environments
+    authTimeoutMs: 180000, // 3 minutes timeout for slower VM environments
+    takeoverOnConflict: true,
+    takeoverTimeoutMs: 120000,
     puppeteer: {
-        protocolTimeout: 180000, // Extend CDP protocol timeout for slow VMs (3 minutes)
+        protocolTimeout: 300000, // 5 minutes CDP protocol timeout for slow VMs
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -328,7 +330,7 @@ async function pollChannel() {
             try {
                 await client.destroy();
             } catch (_) { }
-            process.exit(1);
+            setTimeout(() => process.exit(1), 3000);
         }
     }
 }
@@ -340,12 +342,44 @@ client.on('message', async (msg) => {
     }
 });
 
+// Handle graceful disconnection (e.g., WhatsApp server key rotation or network drop)
+client.on('disconnected', async (reason) => {
+    console.log(`⚠️  WhatsApp Client disconnected (Reason: ${reason}). Cleaning up for auto-restart...`);
+    if (pollIntervalId) {
+        clearInterval(pollIntervalId);
+        pollIntervalId = null;
+    }
+    try {
+        await client.destroy();
+    } catch (_) { }
+    setTimeout(() => process.exit(1), 3000);
+});
+
+// Helper function to remove stale Chrome lock files left behind by unexpected crashes
+function cleanupStaleSessionLocks() {
+    const sessionDir = path.join(__dirname, '.wwebjs_auth', 'session');
+    if (fs.existsSync(sessionDir)) {
+        const lockFile = path.join(sessionDir, 'SingletonLock');
+        if (fs.existsSync(lockFile)) {
+            try {
+                fs.unlinkSync(lockFile);
+                console.log('🧹 Removed stale Chromium session lock file (SingletonLock).');
+            } catch (err) {
+                console.warn('⚠️  Could not remove SingletonLock:', err.message);
+            }
+        }
+    }
+}
+
+// Clean locks and start client
+cleanupStaleSessionLocks();
+
 client.initialize().catch(async (err) => {
     console.error('Initialization error:', err);
     try {
         await client.destroy();
     } catch (_) { }
-    process.exit(1);
+    setTimeout(() => process.exit(1), 3000);
 });
 
 process.on('SIGINT', async () => {
