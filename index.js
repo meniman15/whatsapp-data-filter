@@ -156,7 +156,7 @@ async function fetchRecentMessages(chatId, limit) {
         while (msgs.length < limit && attempts < 10) {
             let loadedMessages = [];
             let strategyUsed = 'none';
-            
+
             // Strategy 1: Standard WAWebChatLoadMessages
             try {
                 const loadModule = window.require('WAWebChatLoadMessages');
@@ -164,7 +164,7 @@ async function fetchRecentMessages(chatId, limit) {
                     loadedMessages = await loadModule.loadEarlierMsgs({ chat }) || [];
                     if (loadedMessages.length > 0) strategyUsed = 'WAWebChatLoadMessages';
                 }
-            } catch (e1) {}
+            } catch (e1) { }
 
             // Strategy 2: Direct model collection load
             if (!loadedMessages || !loadedMessages.length) {
@@ -173,7 +173,7 @@ async function fetchRecentMessages(chatId, limit) {
                         loadedMessages = await chat.msgs.loadEarlier() || [];
                         if (loadedMessages.length > 0) strategyUsed = 'chat.msgs.loadEarlier';
                     }
-                } catch (e2) {}
+                } catch (e2) { }
             }
 
             // Strategy 3: Local DB msgFindBefore
@@ -187,7 +187,7 @@ async function fetchRecentMessages(chatId, limit) {
                             if (loadedMessages.length > 0) strategyUsed = 'msgFindBefore';
                         }
                     }
-                } catch (e3) {}
+                } catch (e3) { }
             }
 
             loadLogs.push(`Attempt ${attempts + 1} (${strategyUsed}): loaded ${loadedMessages.length}`);
@@ -276,6 +276,7 @@ async function processSingleMessage(msg) {
         }
         try {
             await client.sendMessage(destinationChannelId, `[Filtered Job]\n\n${text}`);
+            console.log(`📤 Successfully forwarded job to destination group (${destinationChannelId})!`);
         } catch (sendErr) {
             console.error('❌ Failed to forward message to destination:', sendErr);
         }
@@ -293,7 +294,7 @@ async function processSingleMessage(msg) {
 
 async function pollChannel() {
     try {
-        console.log('🔄 Loading message history from the last 5 days (Please wait, this is NOT stuck)...');
+        console.log('🔄 Loading message history from the last 5 days (Please wait, it is NOT stuck)...');
 
         // Fetch recent messages safely using enhanced multi-strategy in-memory fetcher
         const messages = await fetchRecentMessages(sourceChannelId, 500);
@@ -355,7 +356,7 @@ client.on('message', async (msg) => {
 // Handle graceful disconnection (e.g., WhatsApp server key rotation or network drop)
 client.on('disconnected', async (reason) => {
     console.log(`⚠️  WhatsApp Client disconnected (Reason: ${reason}). Cleaning up for auto-restart...`);
-    
+
     if (destinationChannelId) {
         try {
             await client.sendMessage(destinationChannelId, "⚠️ ALERT: WhatsApp bot has disconnected or lost connection. Please check server logs or re-connect.");
