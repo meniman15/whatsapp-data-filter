@@ -382,16 +382,23 @@ function cleanupStaleSessionLocks() {
     }
 }
 
-// Clean locks and start client
-cleanupStaleSessionLocks();
+// Async startup function with built-in 5-second delay to release Chrome locks
+async function startBot() {
+    console.log('⏳ Pausing 5 seconds on startup to ensure previous Chrome session handles are released...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
-client.initialize().catch(async (err) => {
-    console.error('Initialization error:', err);
-    try {
-        await client.destroy();
-    } catch (_) { }
-    setTimeout(() => process.exit(1), 3000);
-});
+    cleanupStaleSessionLocks();
+
+    client.initialize().catch(async (err) => {
+        console.error('Initialization error:', err);
+        try {
+            await client.destroy();
+        } catch (_) { }
+        setTimeout(() => process.exit(1), 3000);
+    });
+}
+
+startBot();
 
 process.on('SIGINT', async () => {
     console.log('\nShutting down WhatsApp bot...');
