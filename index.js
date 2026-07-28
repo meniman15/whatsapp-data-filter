@@ -75,12 +75,21 @@ startupSpinner = setInterval(() => {
     console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed (can take up to 60s on a slow server)`);
 }, 5000);
 
+let isAlreadyStarted = false;
+
 client.on('ready', async () => {
     // Stop startup spinner
     if (startupSpinner) {
         clearInterval(startupSpinner);
         startupSpinner = null;
     }
+
+    if (isAlreadyStarted) {
+        console.log('⚡ WhatsApp connection restored (background re-sync).');
+        return;
+    }
+    isAlreadyStarted = true;
+
     const isAiModeStartup = (process.env.FILTER_MODE || 'ai').toLowerCase() === 'ai';
     console.log('\n✅ WhatsApp Client is ready!');
     console.log(`📡 Source Channel: ${sourceChannelId}`);
