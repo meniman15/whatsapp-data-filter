@@ -2,6 +2,21 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const Message = require('whatsapp-web.js/src/structures/Message');
 const qrcode = require('qrcode-terminal');
 require('dotenv').config();
+
+// Override console methods to prepend timestamps to every log line
+const _originalLog = console.log;
+const _originalError = console.error;
+const _originalWarn = console.warn;
+
+function formatTimestamp() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `[${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}]`;
+}
+
+console.log = (...args) => _originalLog(formatTimestamp(), ...args);
+console.error = (...args) => _originalError(formatTimestamp(), ...args);
+console.warn = (...args) => _originalWarn(formatTimestamp(), ...args);
 const { isJobRelevant, isJobRelevantKeywords } = require('./filter');
 const fs = require('fs');
 const path = require('path');
