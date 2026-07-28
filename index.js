@@ -9,7 +9,7 @@ const path = require('path');
 const sourceChannelId = process.env.SOURCE_CHANNEL_ID;
 const destinationChannelId = process.env.DESTINATION_CHANNEL_ID;
 const jobCriteria = process.env.JOB_CRITERIA;
-const POLLING_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const POLLING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const AMOUNT_OF_TIME_BEFORE = 60 * 60 * 24 * 5; // 5 days in seconds
 
 // Path to persist processed messages
@@ -120,21 +120,9 @@ client.on('ready', async () => {
         }
         console.log('✅ Sync complete! Starting first scan...');
 
-        // Start polling
+        // Start polling every 10 minutes
         pollIntervalId = setInterval(pollChannel, POLLING_INTERVAL_MS);
         pollChannel(); // initial check
-
-        // Keep-alive heartbeat ping every 10 minutes to prevent idle WebSocket timeouts
-        setInterval(async () => {
-            try {
-                const state = await client.getState();
-                if (state !== 'CONNECTED') {
-                    console.warn(`⚠️  Keep-alive check: Client state is "${state}".`);
-                }
-            } catch (pingErr) {
-                console.warn('⚠️  Keep-alive ping failed:', pingErr.message);
-            }
-        }, 10 * 60 * 1000);
     } else {
         if (!sourceChannelId || !destinationChannelId) {
             console.error('❌ Please set SOURCE_CHANNEL_ID and DESTINATION_CHANNEL_ID in your .env file.');
