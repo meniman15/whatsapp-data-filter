@@ -358,6 +358,16 @@ client.on('message', async (msg) => {
 // Handle graceful disconnection (e.g., WhatsApp server key rotation or network drop)
 client.on('disconnected', async (reason) => {
     console.log(`⚠️  WhatsApp Client disconnected (Reason: ${reason}). Cleaning up for auto-restart...`);
+    
+    if (destinationChannelId) {
+        try {
+            await client.sendMessage(destinationChannelId, "⚠️ ALERT: WhatsApp bot has disconnected or lost connection. Please check server logs or re-connect.");
+            console.log("📢 Sent disconnect alert to Destination Channel.");
+        } catch (sendErr) {
+            console.warn("⚠️ Could not send disconnect alert message:", sendErr.message);
+        }
+    }
+
     if (pollIntervalId) {
         clearInterval(pollIntervalId);
         pollIntervalId = null;
