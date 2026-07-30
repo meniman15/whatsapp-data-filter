@@ -49,6 +49,16 @@ function saveProcessedMessages() {
     }
 }
 
+// Prune old processed message IDs every hour to keep Node memory lightweight
+setInterval(() => {
+    if (processedMessages.size > 3000) {
+        console.log('🧹 Pruning old processed message IDs from memory...');
+        const arr = Array.from(processedMessages);
+        processedMessages = new Set(arr.slice(-1500));
+        saveProcessedMessages();
+    }
+}, 60 * 60 * 1000);
+
 // We only process messages received in the last 5 days
 let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
@@ -64,6 +74,7 @@ const client = new Client({
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
+            '--js-flags=--max-old-space-size=400',
             '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
         ]
     }
@@ -81,13 +92,27 @@ client.on('qr', (qr) => {
 
 let pollIntervalId = null;
 
-// Startup progress logger — prints every 5s while browser/WhatsApp initializes
+// Startup progress logger — prints every 15s while browser/WhatsApp initializes
 let startupSpinner = null;
 let startupSeconds = 0;
 console.log('🚀 Launching browser and connecting to WhatsApp...');
-startupSpinner = setInterval(() => {
+startupSpinner = setInterval(async () => {
     startupSeconds += 5;
-    console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed (can take up to 60s on a slow server)`);
+    if (startupSeconds % 15 === 0) {
+        console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed`);
+    }
+    // Watchdog: If WhatsApp Web fails to reach 'ready' state within 3 minutes, force clean restart
+    if (startupSeconds >= 180) {
+        console.error('❌ Startup watchdog timeout: WhatsApp Web did not reach ready state within 180s. Triggering clean restart...');
+        if (startupSpinner) {
+            clearInterval(startupSpinner);
+            startupSpinner = null;
+        }
+        try {
+            await client.destroy();
+        } catch (_) {}
+        setTimeout(() => process.exit(1), 3000);
+    }
 }, 5000);
 
 let isAlreadyStarted = false;
@@ -344,6 +369,8 @@ async function pollChannel() {
         if (
             err.message.includes('detached Frame') ||
             err.message.includes('Protocol error') ||
+            err.message.includes('ProtocolError') ||
+            err.message.includes('Runtime.callFunctionOn') ||
             err.message.includes('Target closed') ||
             err.message.includes('Session closed') ||
             err.message.includes('timed out')
