@@ -74,6 +74,13 @@ const client = new Client({
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-breakpad',
+            '--disable-component-update',
+            '--disable-domain-reliability',
+            '--disable-extensions',
+            '--renderer-process-limit=2',
             '--js-flags=--max-old-space-size=400',
             '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
         ]
@@ -264,6 +271,23 @@ async function fetchRecentMessages(chatId, limit) {
     return result.messages.map(m => new Message(client, m));
 }
 
+async function sendMessageWithRetry(chatId, content, maxRetries = 3) {
+    let lastErr = null;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await client.sendMessage(chatId, content);
+            return true;
+        } catch (err) {
+            lastErr = err;
+            console.warn(`⚠️ Attempt ${attempt}/${maxRetries} failed to send message: ${err.message}`);
+            if (attempt < maxRetries) {
+                await new Promise(res => setTimeout(res, attempt * 2000));
+            }
+        }
+    }
+    throw lastErr;
+}
+
 async function processSingleMessage(msg) {
     const msgId = msg.id && typeof msg.id === 'object'
         ? (msg.id._serialized || msg.id.id)
@@ -272,11 +296,11 @@ async function processSingleMessage(msg) {
 
     if (msg.timestamp < startTime) return;
     if (processedMessages.has(msgId)) return;
-
-    processedMessages.add(msgId);
-    saveProcessedMessages();
-
-    if (!text || text.trim() === '') return;
+    if (!text || text.trim() === '') {
+        processedMessages.add(msgId);
+        saveProcessedMessages();
+        return;
+    }
 
     const isAiMode = (process.env.FILTER_MODE || 'ai').toLowerCase() === 'ai';
 
@@ -315,10 +339,33 @@ async function processSingleMessage(msg) {
             console.log(`➡️  DECISION: ✅ FILTER IN — ${reason}`);
         }
         try {
-            await client.sendMessage(destinationChannelId, `[Filtered Job]\n\n${text}`);
+            await sendMessageWithRetry(destinationChannelId, `[Filtered Job]\n\n${text}`);
             console.log(`📤 Successfully forwarded job to destination group (${destinationChannelId})!`);
+            // Only mark as processed AFTER successful delivery
+            processedMessages.add(msgId);
+            saveProcessedMessages();
         } catch (sendErr) {
-            console.error('❌ Failed to forward message to destination:', sendErr);
+            console.error('❌ Failed to forward message to destination after retries:', sendErr.message);
+            // If failure was due to browser connection issues, exit so PM2 restarts and retries delivery
+            if (
+                sendErr.message.includes('detached Frame') ||
+                sendErr.message.includes('Protocol error') ||
+                sendErr.message.includes('ProtocolError') ||
+                sendErr.message.includes('Runtime.callFunctionOn') ||
+                sendErr.message.includes('Target closed') ||
+                sendErr.message.includes('Session closed') ||
+                sendErr.message.includes('timed out')
+            ) {
+                console.log('🔄 Browser connection issue during message delivery. Exiting for clean PM2 restart so message can be retried...');
+                if (pollIntervalId) {
+                    clearInterval(pollIntervalId);
+                    pollIntervalId = null;
+                }
+                try {
+                    await client.destroy();
+                } catch (_) { }
+                setTimeout(() => process.exit(1), 3000);
+            }
         }
     } else {
         if (usedFallback) {
@@ -328,6 +375,9 @@ async function processSingleMessage(msg) {
         } else {
             console.log(`➡️  DECISION: ❌ FILTER OUT — ${reason}`);
         }
+        // Mark filtered out messages as processed so they aren't re-evaluated
+        processedMessages.add(msgId);
+        saveProcessedMessages();
     }
     console.log('=============================================================\n');
 }
@@ -344,16 +394,27 @@ async function pollChannel() {
             return;
         }
 
-        // Filter messages to process in this tick (last 24h and not already processed)
-        const messagesToProcess = messages.filter(msg => {
+        let skippedOld = 0;
+        let skippedProcessed = 0;
+        const messagesToProcess = [];
+
+        for (const msg of messages) {
             const msgId = msg.id && typeof msg.id === 'object'
                 ? (msg.id._serialized || msg.id.id)
                 : (msg.id || `${msg.timestamp}_${msg.author || msg.from}`);
-            return msg.timestamp >= startTime && !processedMessages.has(msgId);
-        });
+            
+            if (msg.timestamp < startTime) {
+                skippedOld++;
+            } else if (processedMessages.has(msgId)) {
+                skippedProcessed++;
+            } else {
+                messagesToProcess.push(msg);
+            }
+        }
+
+        console.log(`📊 Scan Stats — Fetched: ${messages.length} | Old (<5d): ${skippedOld} | Already Processed: ${skippedProcessed} | New to Analyze: ${messagesToProcess.length}`);
 
         if (messagesToProcess.length > 0) {
-            console.log(`✅ History load complete! Found ${messagesToProcess.length} messages to analyze.`);
             let index = 1;
             for (const msg of messagesToProcess) {
                 console.log(`📋 Analyzing message ${index} of ${messagesToProcess.length}...`);
@@ -363,7 +424,7 @@ async function pollChannel() {
         } else {
             console.log('📥 No new messages to analyze from the last 5 days.');
         }
-        console.log('📡 Funnel is ready and listening for new group messages in real-time!');
+        console.log('📡 Channel poll cycle completed successfully.');
     } catch (err) {
         console.error('Error polling channel:', err);
         if (
@@ -387,13 +448,6 @@ async function pollChannel() {
         }
     }
 }
-
-// Stream new messages in real-time as they arrive (acting as a pure funnel)
-client.on('message', async (msg) => {
-    if (msg.from === sourceChannelId) {
-        await processSingleMessage(msg);
-    }
-});
 
 // Handle graceful disconnection (e.g., WhatsApp server key rotation or network drop)
 client.on('disconnected', async (reason) => {

@@ -130,15 +130,25 @@ function extractYearsOfExperience(text) {
     };
 
     const isRequirement = (matchedText, fullText) => {
+        const index = fullText.indexOf(matchedText);
+        if (index === -1) return false;
+        const contextStart = Math.max(0, index - 50);
+        const contextEnd = Math.min(fullText.length, index + matchedText.length + 50);
+        const context = fullText.substring(contextStart, contextEnd);
+
+        // Ignore mentions of company age, operating history, or market presence
+        const companyKeywords = [
+            'company', 'market', 'established', 'operating', 'founded', 'in business', 'existence', 'history',
+            'חברה', 'פעילה', 'קיימת', 'הוקמה', 'נוסדה', 'בשוק'
+        ];
+        if (companyKeywords.some(kw => containsWholeWord(context, kw))) {
+            return false;
+        }
+
         if (matchedText.includes('+') || matchedText.includes('-') || matchedText.includes('–') || matchedText.includes('to') || matchedText.includes('עד')) {
             return true;
         }
-        const index = fullText.indexOf(matchedText);
-        if (index === -1) return false;
-        const contextStart = Math.max(0, index - 40);
-        const contextEnd = Math.min(fullText.length, index + matchedText.length + 40);
-        const context = fullText.substring(contextStart, contextEnd);
-        
+
         const reqKeywords = ['experience', 'hands-on', 'development', 'developer', 'engineer', 'working', 'programming', 'coding', 'as', 'in', 'ניסיון', 'פיתוח', 'עבודה', 'כמפתח', 'כמתכנת', 'מינימום', 'לפחות', 'at least', 'minimum'];
         return reqKeywords.some(kw => containsWholeWord(context, kw));
     };
