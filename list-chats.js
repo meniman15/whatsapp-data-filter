@@ -39,29 +39,42 @@ client.on('qr', (qr) => {
 });
 
 client.on('ready', async () => {
-    console.log('\n✅ Client is ready! Fetching your chats & channels...\n');
+    console.log('\n✅ Client is ready! Syncing chats with WhatsApp Web memory...');
     
     try {
-        // Direct in-memory Store query to bypass whatsapp-web.js getChats() 'r: r' bug
-        const chats = await client.pupPage.evaluate(() => {
-            if (!window.Store || !window.Store.Chat) return [];
-            return window.Store.Chat.getModelsArray().map(c => {
-                const isGrp = c.isGroup || (c.id && c.id._serialized ? c.id._serialized.endsWith('@g.us') : false);
-                const isCh = c.isChannel || (c.id && c.id._serialized ? c.id._serialized.endsWith('@newsletter') : false);
-                return {
-                    name: c.name || c.formattedTitle || (c.id ? c.id._serialized : 'Unknown'),
-                    id: c.id ? c.id._serialized : null,
-                    isGroup: isGrp,
-                    isChannel: isCh
-                };
-            }).filter(c => c.id && (c.isGroup || c.isChannel));
-        });
+        let chats = [];
+        let attempts = 0;
+        const maxAttempts = 4;
+
+        while (chats.length === 0 && attempts < maxAttempts) {
+            attempts++;
+            console.log(`⏳ Syncing WhatsApp Web chat models (Attempt ${attempts}/${maxAttempts})...`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+
+            chats = await client.pupPage.evaluate(() => {
+                if (!window.Store || !window.Store.Chat) return [];
+                return window.Store.Chat.getModelsArray().map(c => {
+                    const isGrp = c.isGroup || (c.id && c.id._serialized ? c.id._serialized.endsWith('@g.us') : false);
+                    const isCh = c.isChannel || (c.id && c.id._serialized ? c.id._serialized.endsWith('@newsletter') : false);
+                    return {
+                        name: c.name || c.formattedTitle || (c.id ? c.id._serialized : 'Unknown'),
+                        id: c.id ? c.id._serialized : null,
+                        isGroup: isGrp,
+                        isChannel: isCh
+                    };
+                }).filter(c => c.id && (c.isGroup || c.isChannel));
+            });
+        }
         
-        console.log('--- YOUR CHANNELS & GROUPS ---');
-        chats.forEach(chat => {
-            const type = chat.isChannel ? 'CHANNEL' : 'GROUP';
-            console.log(`[${type}] Name: "${chat.name}" | ID: ${chat.id}`);
-        });
+        console.log('\n--- YOUR CHANNELS & GROUPS ---');
+        if (chats.length === 0) {
+            console.log('⚠️ No groups or channels were found. Please verify your phone is connected and in at least 1 group.');
+        } else {
+            chats.forEach(chat => {
+                const type = chat.isChannel ? 'CHANNEL' : 'GROUP';
+                console.log(`[${type}] Name: "${chat.name}" | ID: ${chat.id}`);
+            });
+        }
         console.log('------------------------------\n');
         
         console.log('👉 Copy the IDs of your source and destination channels into the .env file.');
