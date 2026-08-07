@@ -16,7 +16,11 @@ function cleanupStaleSessionLocks() {
     }
 }
 
+console.log('🚀 Starting WhatsApp Chat Lister...');
+console.log('🧹 Cleaning up stale Chrome session locks...');
 cleanupStaleSessionLocks();
+
+console.log('🌐 Launching Headless Chrome & connecting to WhatsApp (expected wait: ~10-20 seconds)...');
 
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -39,7 +43,8 @@ client.on('qr', (qr) => {
 });
 
 client.on('ready', async () => {
-    console.log('\n✅ Client is ready! Syncing chats with WhatsApp Web memory...');
+    console.log('\n✅ WhatsApp Web connected!');
+    console.log('📡 Syncing chat models from memory (polling up to 4 attempts, 5s per attempt)...');
     
     try {
         let chats = [];
