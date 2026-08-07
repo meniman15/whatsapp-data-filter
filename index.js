@@ -27,7 +27,7 @@ const destinationChannelIds = (process.env.DESTINATION_CHANNEL_ID || '')
     .map(id => id.trim())
     .filter(id => id.length > 0);
 const destinationChannelId = destinationChannelIds[0] || null; // fallback reference
-const jobCriteria = process.env.JOB_CRITERIA;
+const BROADCAST_DELAY_MS = parseInt(process.env.BROADCAST_DELAY_MS || '3000', 10); // default 3 seconds delay between group sends
 const POLLING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const AMOUNT_OF_TIME_BEFORE = 60 * 60 * 24 * 5; // 5 days in seconds
 
@@ -346,8 +346,18 @@ async function processSingleMessage(msg) {
         }
         let anyFailed = false;
         let fatalConnectionErr = null;
+        let isFirstGroup = true;
 
         for (const destId of destinationChannelIds) {
+            if (!isFirstGroup && BROADCAST_DELAY_MS > 0) {
+                // Add a small random jitter (+-500ms) to simulate human typing/sending speed
+                const jitter = Math.floor(Math.random() * 1000) - 500;
+                const actualDelay = Math.max(500, BROADCAST_DELAY_MS + jitter);
+                console.log(`⏳ Anti-spam delay: Waiting ${(actualDelay / 1000).toFixed(1)}s before broadcasting to next group (${destId})...`);
+                await new Promise(resolve => setTimeout(resolve, actualDelay));
+            }
+            isFirstGroup = false;
+
             try {
                 await sendMessageWithRetry(destId, `[Filtered Job]\n\n${text}`);
                 console.log(`📤 Successfully forwarded job to destination group (${destId})!`);
