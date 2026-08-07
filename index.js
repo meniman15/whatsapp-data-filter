@@ -22,7 +22,11 @@ const fs = require('fs');
 const path = require('path');
 
 const sourceChannelId = process.env.SOURCE_CHANNEL_ID;
-const destinationChannelId = process.env.DESTINATION_CHANNEL_ID;
+const destinationChannelIds = (process.env.DESTINATION_CHANNEL_ID || '')
+    .split(',')
+    .map(id => id.trim())
+    .filter(id => id.length > 0);
+const destinationChannelId = destinationChannelIds[0] || null; // fallback reference
 const jobCriteria = process.env.JOB_CRITERIA;
 const POLLING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const AMOUNT_OF_TIME_BEFORE = 60 * 60 * 24 * 5; // 5 days in seconds
@@ -140,7 +144,7 @@ client.on('ready', async () => {
     const isAiModeStartup = (process.env.FILTER_MODE || 'ai').toLowerCase() === 'ai';
     console.log('\n✅ WhatsApp Client is ready!');
     console.log(`📡 Source Channel: ${sourceChannelId}`);
-    console.log(`🎯 Destination Channel: ${destinationChannelId}`);
+    console.log(`🎯 Destination Channel(s) [${destinationChannelIds.length}]: ${destinationChannelIds.join(', ')}`);
     if (isAiModeStartup) {
         console.log(`🔎 AI Criteria: "${jobCriteria}"`);
     } else {
@@ -152,14 +156,16 @@ client.on('ready', async () => {
     }
     console.log(`⏱️  Polling Interval: Every ${POLLING_INTERVAL_MS / 1000 / 60} minutes\n`);
 
-    const isReady = sourceChannelId && destinationChannelId && (!isAiModeStartup || jobCriteria);
+    const isReady = sourceChannelId && destinationChannelIds.length > 0 && (!isAiModeStartup || jobCriteria);
     if (isReady) {
-        // Send a test connection message to the destination channel
-        try {
-            await client.sendMessage(destinationChannelId, "🤖 Job Filter Bot is now connected and listening for job postings!");
-            console.log("✅ Verified write access to Destination Channel (Test message sent).");
-        } catch (sendErr) {
-            console.error("❌ Failed to send connection test message to Destination Channel. Please verify the destination ID and your permissions.", sendErr);
+        // Send a test connection message to all destination channels
+        for (const destId of destinationChannelIds) {
+            try {
+                await client.sendMessage(destId, "🤖 Job Filter Bot is now connected and listening for job postings!");
+                console.log(`✅ Verified write access to Destination Channel (${destId}).`);
+            } catch (sendErr) {
+                console.error(`❌ Failed to send connection test message to Destination Channel (${destId}). Please verify the destination ID and your permissions.`, sendErr);
+            }
         }
 
         // Clear any existing interval in case of re-initialization
@@ -338,34 +344,44 @@ async function processSingleMessage(msg) {
         } else {
             console.log(`➡️  DECISION: ✅ FILTER IN — ${reason}`);
         }
-        try {
-            await sendMessageWithRetry(destinationChannelId, `[Filtered Job]\n\n${text}`);
-            console.log(`📤 Successfully forwarded job to destination group (${destinationChannelId})!`);
-            // Only mark as processed AFTER successful delivery
+        let anyFailed = false;
+        let fatalConnectionErr = null;
+
+        for (const destId of destinationChannelIds) {
+            try {
+                await sendMessageWithRetry(destId, `[Filtered Job]\n\n${text}`);
+                console.log(`📤 Successfully forwarded job to destination group (${destId})!`);
+            } catch (sendErr) {
+                anyFailed = true;
+                console.error(`❌ Failed to forward message to destination (${destId}) after retries:`, sendErr.message);
+                if (
+                    sendErr.message.includes('detached Frame') ||
+                    sendErr.message.includes('Protocol error') ||
+                    sendErr.message.includes('ProtocolError') ||
+                    sendErr.message.includes('Runtime.callFunctionOn') ||
+                    sendErr.message.includes('Target closed') ||
+                    sendErr.message.includes('Session closed') ||
+                    sendErr.message.includes('timed out')
+                ) {
+                    fatalConnectionErr = sendErr;
+                }
+            }
+        }
+
+        if (!anyFailed) {
+            // Only mark as processed AFTER successful delivery to all destination channels
             processedMessages.add(msgId);
             saveProcessedMessages();
-        } catch (sendErr) {
-            console.error('❌ Failed to forward message to destination after retries:', sendErr.message);
-            // If failure was due to browser connection issues, exit so PM2 restarts and retries delivery
-            if (
-                sendErr.message.includes('detached Frame') ||
-                sendErr.message.includes('Protocol error') ||
-                sendErr.message.includes('ProtocolError') ||
-                sendErr.message.includes('Runtime.callFunctionOn') ||
-                sendErr.message.includes('Target closed') ||
-                sendErr.message.includes('Session closed') ||
-                sendErr.message.includes('timed out')
-            ) {
-                console.log('🔄 Browser connection issue during message delivery. Exiting for clean PM2 restart so message can be retried...');
-                if (pollIntervalId) {
-                    clearInterval(pollIntervalId);
-                    pollIntervalId = null;
-                }
-                try {
-                    await client.destroy();
-                } catch (_) { }
-                setTimeout(() => process.exit(1), 3000);
+        } else if (fatalConnectionErr) {
+            console.log('🔄 Browser connection issue during message delivery. Exiting for clean PM2 restart so message can be retried...');
+            if (pollIntervalId) {
+                clearInterval(pollIntervalId);
+                pollIntervalId = null;
             }
+            try {
+                await client.destroy();
+            } catch (_) { }
+            setTimeout(() => process.exit(1), 3000);
         }
     } else {
         if (usedFallback) {
@@ -453,12 +469,12 @@ async function pollChannel() {
 client.on('disconnected', async (reason) => {
     console.log(`⚠️  WhatsApp Client disconnected (Reason: ${reason}). Cleaning up for auto-restart...`);
 
-    if (destinationChannelId) {
+    for (const destId of destinationChannelIds) {
         try {
-            await client.sendMessage(destinationChannelId, "⚠️ ALERT: WhatsApp bot has disconnected or lost connection. Please check server logs or re-connect.");
-            console.log("📢 Sent disconnect alert to Destination Channel.");
+            await client.sendMessage(destId, "⚠️ ALERT: WhatsApp bot has disconnected or lost connection. Please check server logs or re-connect.");
+            console.log(`📢 Sent disconnect alert to Destination Channel (${destId}).`);
         } catch (sendErr) {
-            console.warn("⚠️ Could not send disconnect alert message:", sendErr.message);
+            console.warn(`⚠️ Could not send disconnect alert message to ${destId}:`, sendErr.message);
         }
     }
 
