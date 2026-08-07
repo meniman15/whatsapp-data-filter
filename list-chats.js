@@ -57,13 +57,56 @@ client.on('ready', async () => {
             await new Promise(resolve => setTimeout(resolve, 5000));
 
             chats = await client.pupPage.evaluate(() => {
-                if (!window.Store || !window.Store.Chat) return [];
-                return window.Store.Chat.getModelsArray().map(c => {
-                    const isGrp = c.isGroup || (c.id && c.id._serialized ? c.id._serialized.endsWith('@g.us') : false);
-                    const isCh = c.isChannel || (c.id && c.id._serialized ? c.id._serialized.endsWith('@newsletter') : false);
+                let rawModels = [];
+                
+                // Source 1: window.Store.Chat
+                if (window.Store && window.Store.Chat) {
+                    if (typeof window.Store.Chat.getModelsArray === 'function') {
+                        rawModels = window.Store.Chat.getModelsArray();
+                    } else if (Array.isArray(window.Store.Chat.models)) {
+                        rawModels = window.Store.Chat.models;
+                    } else if (Array.isArray(window.Store.Chat._models)) {
+                        rawModels = window.Store.Chat._models;
+                    }
+                }
+
+                // Source 2: Webpack WAWebChatCollection
+                if (!rawModels || rawModels.length === 0) {
+                    try {
+                        const chatMod = window.require('WAWebChatCollection');
+                        const chatColl = chatMod && (chatMod.ChatCollection || chatMod.default || chatMod);
+                        if (chatColl) {
+                            if (typeof chatColl.getModelsArray === 'function') {
+                                rawModels = chatColl.getModelsArray();
+                            } else if (Array.isArray(chatColl.models)) {
+                                rawModels = chatColl.models;
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                // Source 3: Webpack WAWebGroupMetadataCollection
+                if (!rawModels || rawModels.length === 0) {
+                    try {
+                        const groupMod = window.require('WAWebGroupMetadataCollection');
+                        const groupColl = groupMod && (groupMod.GroupMetadataCollection || groupMod.default || groupMod);
+                        if (groupColl) {
+                            if (typeof groupColl.getModelsArray === 'function') {
+                                rawModels = groupColl.getModelsArray();
+                            } else if (Array.isArray(groupColl.models)) {
+                                rawModels = groupColl.models;
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                return (rawModels || []).map(c => {
+                    const idStr = c.id ? (c.id._serialized || c.id.id || (typeof c.id === 'string' ? c.id : null)) : null;
+                    const isGrp = c.isGroup || (typeof idStr === 'string' && idStr.endsWith('@g.us'));
+                    const isCh = c.isChannel || (typeof idStr === 'string' && idStr.endsWith('@newsletter'));
                     return {
-                        name: c.name || c.formattedTitle || (c.id ? c.id._serialized : 'Unknown'),
-                        id: c.id ? c.id._serialized : null,
+                        name: c.name || c.formattedTitle || c.subject || idStr || 'Unknown',
+                        id: idStr,
                         isGroup: isGrp,
                         isChannel: isCh
                     };
