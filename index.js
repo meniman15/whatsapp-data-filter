@@ -282,8 +282,10 @@ async function sendMessageWithRetry(chatId, content, maxRetries = 3) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const sentMsg = await client.sendMessage(chatId, content);
-            const msgIdStr = sentMsg && sentMsg.id ? (sentMsg.id._serialized || sentMsg.id.id || sentMsg.id) : 'unknown';
-            const ackStatus = sentMsg ? sentMsg.ack : 'none';
+            const msgIdStr = sentMsg ? (
+                (typeof sentMsg.id === 'object' && sentMsg.id ? (sentMsg.id._serialized || sentMsg.id.id) : sentMsg.id) || 'unknown'
+            ) : 'unknown';
+            const ackStatus = (sentMsg && sentMsg.ack !== undefined && sentMsg.ack !== null) ? sentMsg.ack : 'pending/queued';
             console.log(`[Debug Send] Delivered to ${chatId} | Msg ID: ${msgIdStr} | Ack: ${ackStatus}`);
             return sentMsg;
         } catch (err) {
@@ -449,6 +451,8 @@ async function pollChannel() {
                 console.log(`📋 Analyzing message ${index} of ${messagesToProcess.length}...`);
                 await processSingleMessage(msg);
                 index++;
+                // Add a small 100ms pacing delay between messages so Chrome V8 engine doesn't choke during bulk scans
+                await new Promise(r => setTimeout(r, 100));
             }
         } else {
             console.log('📥 No new messages to analyze from the last 5 days.');
