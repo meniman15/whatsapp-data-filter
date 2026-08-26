@@ -353,6 +353,25 @@ async function processSingleMessage(msg) {
         let fatalConnectionErr = null;
         let isFirstGroup = true;
 
+        let postDateStr = '';
+        if (msg.timestamp) {
+            const timestampMs = msg.timestamp > 1e11 ? msg.timestamp : msg.timestamp * 1000;
+            const dateObj = new Date(timestampMs);
+            const dateFormatted = dateObj.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                timeZone: 'Asia/Jerusalem'
+            });
+            const timeFormatted = dateObj.toLocaleTimeString('en-GB', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+                timeZone: 'Asia/Jerusalem'
+            });
+            postDateStr = `📅 Posted: ${dateFormatted} at ${timeFormatted}\n\n`;
+        }
+
         for (const destId of destinationChannelIds) {
             if (!isFirstGroup && BROADCAST_DELAY_MS > 0) {
                 // Add a small random jitter (+-500ms) to simulate human typing/sending speed
@@ -364,7 +383,7 @@ async function processSingleMessage(msg) {
             isFirstGroup = false;
 
             try {
-                await sendMessageWithRetry(destId, `[Filtered Job]\n\n${text}`);
+                await sendMessageWithRetry(destId, `[Filtered Job]\n${postDateStr}${text}`);
                 console.log(`📤 Successfully forwarded job to destination group (${destId})!`);
             } catch (sendErr) {
                 anyFailed = true;
