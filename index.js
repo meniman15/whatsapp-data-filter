@@ -281,8 +281,11 @@ async function sendMessageWithRetry(chatId, content, maxRetries = 3) {
     let lastErr = null;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            await client.sendMessage(chatId, content);
-            return true;
+            const sentMsg = await client.sendMessage(chatId, content);
+            const msgIdStr = sentMsg && sentMsg.id ? (sentMsg.id._serialized || sentMsg.id.id || sentMsg.id) : 'unknown';
+            const ackStatus = sentMsg ? sentMsg.ack : 'none';
+            console.log(`[Debug Send] Delivered to ${chatId} | Msg ID: ${msgIdStr} | Ack: ${ackStatus}`);
+            return sentMsg;
         } catch (err) {
             lastErr = err;
             console.warn(`⚠️ Attempt ${attempt}/${maxRetries} failed to send message: ${err.message}`);
