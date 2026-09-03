@@ -68,7 +68,7 @@ let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
 const client = new Client({
     authStrategy: new LocalAuth(),
-    authTimeoutMs: 0, // 0 = Infinite timeout. Let slow Oracle VMs take as long as they need to load!
+    authTimeoutMs: 600000, // 10 minutes — generous for slow Oracle VMs, but still catches genuine freezes
     takeoverOnConflict: true,
     takeoverTimeoutMs: 120000,
     puppeteer: {
@@ -111,6 +111,19 @@ startupSpinner = setInterval(async () => {
     startupSeconds += 5;
     if (startupSeconds % 15 === 0) {
         console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed`);
+    }
+    // Watchdog: If WhatsApp Web fails to reach 'ready' state within 10 minutes, force clean restart.
+    // 10 min is generous enough for the slowest Oracle Cloud loads, but catches genuine Chrome freezes.
+    if (startupSeconds >= 600) {
+        console.error('❌ Startup watchdog timeout: WhatsApp Web did not reach ready state within 10 minutes. Triggering clean restart...');
+        if (startupSpinner) {
+            clearInterval(startupSpinner);
+            startupSpinner = null;
+        }
+        try {
+            await client.destroy();
+        } catch (_) {}
+        setTimeout(() => process.exit(1), 3000);
     }
 }, 5000);
 
