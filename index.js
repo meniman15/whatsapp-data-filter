@@ -68,7 +68,7 @@ let startTime = Math.floor(Date.now() / 1000) - AMOUNT_OF_TIME_BEFORE;
 
 const client = new Client({
     authStrategy: new LocalAuth(),
-    authTimeoutMs: 180000, // 3 minutes timeout for slower VM environments
+    authTimeoutMs: 0, // 0 = Infinite timeout. Let slow Oracle VMs take as long as they need to load!
     takeoverOnConflict: true,
     takeoverTimeoutMs: 120000,
     puppeteer: {
@@ -111,19 +111,6 @@ startupSpinner = setInterval(async () => {
     startupSeconds += 5;
     if (startupSeconds % 15 === 0) {
         console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed`);
-    }
-    // Watchdog: If WhatsApp Web fails to reach 'ready' state within 5 minutes, force clean restart
-    // Increased from 3m to 5m. Rapid restarts (crash looping) causes Meta to forcefully LOG OUT the session!
-    if (startupSeconds >= 300) {
-        console.error('❌ Startup watchdog timeout: WhatsApp Web did not reach ready state within 300s. Triggering clean restart...');
-        if (startupSpinner) {
-            clearInterval(startupSpinner);
-            startupSpinner = null;
-        }
-        try {
-            await client.destroy();
-        } catch (_) {}
-        setTimeout(() => process.exit(1), 3000);
     }
 }, 5000);
 
