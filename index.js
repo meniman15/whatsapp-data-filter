@@ -112,9 +112,10 @@ startupSpinner = setInterval(async () => {
     if (startupSeconds % 15 === 0) {
         console.log(`   ⏳ Still starting up... ${startupSeconds}s elapsed`);
     }
-    // Watchdog: If WhatsApp Web fails to reach 'ready' state within 3 minutes, force clean restart
-    if (startupSeconds >= 180) {
-        console.error('❌ Startup watchdog timeout: WhatsApp Web did not reach ready state within 180s. Triggering clean restart...');
+    // Watchdog: If WhatsApp Web fails to reach 'ready' state within 5 minutes, force clean restart
+    // Increased from 3m to 5m. Rapid restarts (crash looping) causes Meta to forcefully LOG OUT the session!
+    if (startupSeconds >= 300) {
+        console.error('❌ Startup watchdog timeout: WhatsApp Web did not reach ready state within 300s. Triggering clean restart...');
         if (startupSpinner) {
             clearInterval(startupSpinner);
             startupSpinner = null;
